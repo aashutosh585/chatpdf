@@ -4,22 +4,6 @@
 
 ---
 
-## 📑 Table of Contents
-
-- [Features](#-features)
-- [Tech Stack](#-tech-stack)
-- [Prerequisites](#-prerequisites)
-- [Environment Setup](#-environment-setup)
-- [Installation & Running](#-installation--running)
-- [Testing](#-testing)
-- [Usage Guide](#-usage-guide)
-- [Project Structure](#-project-structure)
-- [API Endpoints](#-api-endpoints)
-- [Contributing](#-contributing)
-- [License](#-license)
-- [Author](#-author)
-
----
 
 ## 🚀 Features
 
