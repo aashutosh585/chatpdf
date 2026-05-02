@@ -1,18 +1,6 @@
 # 📄 ChatPDF - AI-Powered Document Q&A Platform
 
-<div align="center">
-
-![ChatPDF Banner](https://img.shields.io/badge/React%2019-61DAFB?style=flat-square&logo=react&logoColor=black)
-![Node.js](https://img.shields.io/badge/Node.js-339933?style=flat-square&logo=node.js&logoColor=white)
-![MongoDB](https://img.shields.io/badge/MongoDB-47A248?style=flat-square&logo=mongodb&logoColor=white)
-![Google Gemini](https://img.shields.io/badge/Google%20Gemini-8F7EE7?style=flat-square&logo=google&logoColor=white)
-![Pinecone](https://img.shields.io/badge/Pinecone-000000?style=flat-square&logoColor=white)
-
-**Upload PDFs and have intelligent conversations with your documents using AI. Powered by Google's Gemini and Pinecone vector search.**
-
-[🌐 Live Demo](#-live-demo) • [📚 Features](#-features) • [🚀 Quick Start](#-quick-start) • [📖 Usage](#-usage-guide) • [🤝 Contributing](#-contributing)
-
-</div>
+**ChatPDF is an AI-powered platform that lets you upload PDF documents and interact with them using natural language. Leveraging Google's Gemini AI and Pinecone vector search, the platform provides accurate, context-aware answers to your questions about document content.**
 
 ---
 
@@ -58,13 +46,14 @@
 ### Backend
 | Technology | Purpose |
 |:-----------|:--------|
-| **Node.js** | JavaScript runtime environment |
-| **Express 5** | Web application framework |
+| **Python 3.10+** | Programming language |
+| **FastAPI** | Modern, fast web framework for building APIs |
 | **MongoDB** | NoSQL database for user & document metadata |
-| **Mongoose** | MongoDB object modeling |
-| **bcryptjs** | Password hashing & authentication |
-| **Multer** | Middleware for file upload handling |
-| **LangChain** | Framework for LLM-powered applications |
+| **Pymongo** | MongoDB driver for Python |
+| **bcrypt** | Password hashing & authentication |
+| **Google Gemini** | Large Language Model for embeddings & chat |
+| **Pinecone** | Vector database for semantic search |
+| **Cloudinary** | Cloud storage for PDF files |
 
 ### AI & Cloud Services
 | Service | Purpose |
@@ -98,10 +87,10 @@ Get ChatPDF running locally in minutes!
 2. **Setup Backend**
    ```bash
    cd backend
-   npm install
+   pip install -r requirements.txt
    cp .env.example .env
    # Update .env with your API keys
-   npm run dev  # Runs on http://localhost:8000
+   uvicorn main:app --reload  # Runs on http://localhost:8000
    ```
 
 3. **Setup Frontend** (in a new terminal)
@@ -167,16 +156,13 @@ VITE_API_URL=http://localhost:8000
 cd backend
 
 # Install dependencies
-npm install
+pip install -r requirements.txt
 
 # Start dev server (with auto-reload)
-npm run dev
+uvicorn main:app --reload
 
-# Start production server
-npm start
-
-# Clear all databases (⚠️ WARNING: Deletes all data)
-npm run test
+# For production, use a production server
+# Example: gunicorn -w 4 -k uvicorn.workers.UvicornWorker main:app
 ```
 
 ### Frontend
@@ -245,29 +231,28 @@ npm run test
 ```
 chatpdf/
 │
-├── backend/                          # Node.js/Express Backend
-│   ├── config/                       # Configuration files
-│   │   ├── cloud.js                 # Cloudinary setup
-│   │   ├── db.js                    # MongoDB connection
-│   │   ├── gemini.js                # Google Gemini setup
-│   │   ├── multer.js                # File upload configuration
-│   │   └── pinecone.js              # Pinecone vector DB setup
-│   ├── controller/                   # Request handlers
-│   │   ├── chatController.js        # Chat & AI endpoints
-│   │   └── store.js                 # File upload & PDF processing
-│   ├── middleware/                   # Custom middleware
-│   │   └── isAuth.js                # JWT authentication middleware
-│   ├── models/                       # Mongoose models
-│   │   ├── user.js                  # User schema
-│   │   └── pdf.js                   # PDF document schema
-│   ├── routes/                       # API route definitions
-│   │   ├── auth.js                  # Authentication routes
-│   │   ├── chat.js                  # Chat API routes
-│   │   └── pdf.js                   # PDF management routes
-│   ├── .env.example                 # Environment template
-│   ├── package.json                 # Backend dependencies
-│   ├── server.js                    # Express server entry point
-│   └── test.js                      # Database clearing utility
+├── backend/                          # FastAPI Backend
+│   ├── .env
+│   ├── .gitignore
+│   ├── main.py                       # Entry point for the FastAPI app
+│   ├── README.md                     # Backend-specific documentation
+│   ├── requirements.txt              # Python dependencies
+│   ├── app/                          # Application package
+│   │   ├── __init__.py
+│   │   ├── database.py               # Database connection and setup
+│   │   ├── config/
+│   │   │   └── __init__.py           # Configuration
+│   │   ├── models/
+│   │   │   ├── __init__.py
+│   │   │   ├── pdf.py                # PDF model
+│   │   │   └── user.py               # User model
+│   │   ├── routers/
+│   │   │   ├── __init__.py
+│   │   │   ├── auth.py               # Authentication routes
+│   │   │   └── users.py              # User management routes
+│   │   └── utils/
+│   │       ├── __init__.py
+│   │       └── auth.py               # Authentication utilities
 │
 ├── frontend/                         # React Frontend
 │   ├── public/                       # Static assets
@@ -293,6 +278,7 @@ chatpdf/
 │   │   └── main.jsx                 # React entry point
 │   ├── .env.example                 # Environment template
 │   ├── index.html                   # HTML template
+│   ├── package-lock.json
 │   ├── package.json                 # Frontend dependencies
 │   └── vite.config.js               # Vite configuration
 │
@@ -315,14 +301,14 @@ chatpdf/
 |:-------|:---------|:------------|
 | GET | `/api/pdfs` | Get all user's PDFs |
 | POST | `/api/pdfs/upload` | Upload & process new PDF |
-| GET | `/api/pdfs/:id` | Get specific PDF details |
-| DELETE | `/api/pdfs/:id` | Delete PDF and associated data |
+| GET | `/api/pdfs/{id}` | Get specific PDF details |
+| DELETE | `/api/pdfs/{id}` | Delete PDF and associated data |
 
 ### Chat & AI
 | Method | Endpoint | Description |
 |:-------|:---------|:------------|
 | POST | `/api/chat` | Send message to PDF AI |
-| GET | `/api/chat/:pdfId` | Get chat history for PDF |
+| GET | `/api/chat/{pdfId}` | Get chat history for PDF |
 
 ---
 
@@ -399,11 +385,7 @@ Contributions are welcome! Help us improve ChatPDF.
 
 ---
 
-## 📝 License
 
-This project is licensed under the MIT License - see the LICENSE file for details.
-
----
 
 ## 👤 Author & Support
 
@@ -415,7 +397,7 @@ Building AI-powered applications with modern web technologies.
 - 🌐 Portfolio: [aashutosh.me](https://aashutosh.me)
 - 💻 GitHub: [@aashutosh585](https://github.com/aashutosh585)
 - 💼 LinkedIn: [ashutosh585](https://www.linkedin.com/in/ashutosh585)
-- 📧 Email: [Get in touch](mailto:your-email@example.com)
+- 📧 Email: [Get in touch](mailto:ashutoshmaurya585@gmail.com)
 
 ---
 
@@ -423,6 +405,6 @@ Building AI-powered applications with modern web technologies.
 
 ### 🌟 If you found this project helpful, please give it a star!
 
-Built with ❤️ using React, Node.js, Google Gemini AI & Pinecone
+Built with ❤️ 
 
 </div>
