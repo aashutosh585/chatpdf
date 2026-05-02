@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import axios from 'axios';
 
 export const useAuth = () => {
@@ -15,13 +15,13 @@ export const useAuth = () => {
       }
 
       try {
-        const response = await axios.get('http://localhost:8000/auth/me', {
+        const response = await axios.get(`${import.meta.env.VITE_API_URL}/auth/me`, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
         });
 
-        if (response.data.success) {
+        if (response.data.success && response.data.user) {
           setUser(response.data.user);
         } else {
           localStorage.removeItem('token');
@@ -39,11 +39,11 @@ export const useAuth = () => {
     fetchUser();
   }, []);
 
-  const logout = async () => {
+  const logout = useCallback(async () => {
     try {
       const token = localStorage.getItem('token');
       if (token) {
-        await axios.post('http://localhost:8000/auth/logout', {}, {
+        await axios.post(`${import.meta.env.VITE_API_URL}/auth/logout`, {}, {
           headers: {
             Authorization: `Bearer ${token}`,
           },
@@ -56,7 +56,7 @@ export const useAuth = () => {
       setUser(null);
       window.location.href = '/login';
     }
-  };
+  }, []);
 
   return { user, loading, logout };
 };

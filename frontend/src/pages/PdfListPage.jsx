@@ -23,7 +23,15 @@ const PdfListPage = () => {
         });
 
         if (pdfsResponse.data.success) {
-          setPdfs(pdfsResponse.data.pdfs);
+          setPdfs(
+            pdfsResponse.data.pdfs.map((pdf) => ({
+              id: pdf.id,
+              fileName: pdf.file_name,
+              pdfId: pdf.pdf_id,
+              namespace: pdf.namespace,
+              createdAt: pdf.created_at,
+            }))
+          );
         }
       } catch (error) {
         console.error('Error fetching data:', error);
@@ -37,6 +45,25 @@ const PdfListPage = () => {
 
     fetchPdfs();
   }, [logout]);
+
+  const handleDeletePdf = async (pdfId) => {
+    const confirmDelete = window.confirm('Delete this PDF and its saved content? This cannot be undone.');
+    if (!confirmDelete) return;
+
+    try {
+      const token = localStorage.getItem('token');
+      await axios.delete(`http://localhost:8000/user/pdfs/${pdfId}`, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+
+      setPdfs((prev) => prev.filter((pdf) => pdf.pdfId !== pdfId));
+    } catch (error) {
+      console.error('Error deleting PDF:', error);
+      alert(error.response?.data?.detail || 'Failed to delete PDF. Please try again.');
+    }
+  };
 
   return (
     <div className="min-h-screen bg-gray-50">
@@ -157,7 +184,7 @@ const PdfListPage = () => {
 
         {/* PDF Table */}
         <div className="bg-white rounded-lg shadow">
-          <PdfTable pdfs={pdfs} loading={loading} />
+          <PdfTable pdfs={pdfs} loading={loading} onDeletePdf={handleDeletePdf} />
         </div>
       </div>
     </div>

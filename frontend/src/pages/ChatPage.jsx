@@ -27,9 +27,9 @@ const ChatPage = () => {
           });
 
           if (pdfsResponse.data.success) {
-            const pdf = pdfsResponse.data.pdfs.find(p => p.pdfId === pdfId);
+            const pdf = pdfsResponse.data.pdfs.find(p => p.pdf_id === pdfId);
             if (pdf) {
-              setPdfName(pdf.fileName);
+              setPdfName(pdf.file_name);
             } else {
               setPdfName('Unknown PDF');
             }

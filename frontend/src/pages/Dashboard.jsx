@@ -44,7 +44,7 @@ const Dashboard = () => {
 
       if (response.status === 200) {
         setUploadedPdf(pdfFile.name);
-        setPdfId(response.data.pdfId);
+        setPdfId(response.data.pdf_id);
         setMessages([
           {
             type: 'system',
@@ -72,22 +72,25 @@ const Dashboard = () => {
 
     try {
       const token = localStorage.getItem('token');
-      // Pass history if needed, for now just question and pdfId
-      // Filter out system messages and map to expected format if you want to send history
-      const history = messages
-        .filter(msg => msg.type !== 'system')
-        .map(msg => ({
-          role: msg.type === 'user' ? 'user' : 'model',
-          text: msg.content
-        }));
+      const formData = new FormData();
+      formData.append('question', currentInput);
+      formData.append('pdf_id', pdfId);
+      formData.append(
+        'history',
+        JSON.stringify(
+          messages
+            .filter(msg => msg.type !== 'system')
+            .map(msg => ({
+              role: msg.type === 'user' ? 'user' : 'assistant',
+              text: msg.content,
+            }))
+        )
+      );
 
-      const response = await axios.post('http://localhost:8000/user/chat', {
-        question: currentInput,
-        pdfId: pdfId,
-        history: history
-      }, {
+      const response = await axios.post('http://localhost:8000/user/chat', formData, {
         headers: {
           Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
         },
       });
 

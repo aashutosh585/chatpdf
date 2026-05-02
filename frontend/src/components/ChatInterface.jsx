@@ -37,24 +37,27 @@ const ChatInterface = ({ pdfId, pdfName }) => {
 
     try {
       const token = localStorage.getItem('token');
-      const response = await axios.post(
-        'http://localhost:8000/user/chat',
-        {
-          pdfId: pdfId,
-          question: userMessage,
-          history: messages
+      const formData = new FormData();
+      formData.append('question', userMessage);
+      formData.append('pdf_id', pdfId);
+      formData.append(
+        'history',
+        JSON.stringify(
+          messages
             .filter(m => m.type !== 'system')
             .map(m => ({
-              role: m.type,
+              role: m.type === 'user' ? 'user' : 'assistant',
               text: m.content,
-            })),
-        },
-        {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        }
+            }))
+        )
       );
+
+      const response = await axios.post('http://localhost:8000/user/chat', formData, {
+        headers: {
+          Authorization: `Bearer ${token}`,
+          'Content-Type': 'multipart/form-data',
+        },
+      });
 
       // Add AI response
       setMessages(prev => [

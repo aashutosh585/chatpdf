@@ -1,7 +1,7 @@
 import React from 'react';
 import { useNavigate } from 'react-router-dom';
 
-const PdfTable = ({ pdfs, loading }) => {
+const PdfTable = ({ pdfs, loading, onDeletePdf }) => {
   const navigate = useNavigate();
 
   const handlePdfClick = (pdf) => {
@@ -72,7 +72,7 @@ const PdfTable = ({ pdfs, loading }) => {
         <tbody className="bg-white divide-y divide-gray-200">
           {pdfs.map((pdf, index) => (
             <tr
-              key={pdf._id}
+              key={pdf.id || pdf.pdfId}
               className="hover:bg-gray-50 transition-colors duration-150 cursor-pointer"
               onClick={() => handlePdfClick(pdf)}
             >
@@ -109,15 +109,26 @@ const PdfTable = ({ pdfs, loading }) => {
                 })}
               </td>
               <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
-                <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handlePdfClick(pdf);
-                  }}
-                  className="text-blue-600 hover:text-blue-900 transition-colors duration-150"
-                >
-                  Chat with PDF →
-                </button>
+                <div className="flex items-center space-x-4">
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      handlePdfClick(pdf);
+                    }}
+                    className="text-blue-600 hover:text-blue-900 transition-colors duration-150"
+                  >
+                    Chat with PDF →
+                  </button>
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onDeletePdf?.(pdf.pdfId);
+                    }}
+                    className="text-red-600 hover:text-red-900 transition-colors duration-150"
+                  >
+                    Delete
+                  </button>
+                </div>
               </td>
             </tr>
           ))}
