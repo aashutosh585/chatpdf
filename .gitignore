@@ -1,5 +1,4 @@
-backend1
-backend/.env
+backend
 
 # Environment files
 .env
@@ -8,4 +7,3 @@ backend/.env
 **/.env.*
 !.env.example
 !**/.env.example
-
