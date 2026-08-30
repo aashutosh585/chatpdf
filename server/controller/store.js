@@ -112,10 +112,11 @@ export async function store(req, res) {
             throw new Error("No valid text content found in PDF after processing. The PDF may contain only images or be corrupted.");
         }
 
-        // Chunking of data
+        // Chunking of data: Semantic recursive character splitter
         const textSplitter = new RecursiveCharacterTextSplitter({
-            chunkSize: 1000,
-            chunkOverlap: 200,
+            chunkSize: 500,
+            chunkOverlap: 120,
+            separators: ["\n\n", "\n", ". ", "? ", "! ", " ", ""],
         });
         const chunkedDocs = await textSplitter.splitDocuments(textOnlyDocs);
 

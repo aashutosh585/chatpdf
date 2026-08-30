@@ -15,7 +15,10 @@ const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX_NAME);
 /*  CONFIG  */
 const MAX_CONTEXT_CHARS = 6000;
 const MAX_HISTORY_MESSAGES = 8;
-const TOP_K = 4;
+const INITIAL_TOP_K = 10; // Broad initial retrieval
+const FINAL_TOP_K = 4;    // Re-ranked top chunks
+const RERANK_SCORE_THRESHOLD = 0.05; // Strict relevance threshold for cross-encoder reranker
+const VECTOR_SCORE_THRESHOLD = 0.55; // Fallback threshold for raw vector similarity
 
 /*  HELPERS  */
 function buildNamespace(userId, pdfId) {
@@ -63,7 +66,7 @@ export async function chat(req, res) {
     const namespace = buildNamespace(userId, pdfId);
     console.log("Chatting in namespace:", namespace);
 
-    /* Embed question using Pinecone Inference (1024-dim llama-text-embed-v2) */
+    /* 1. Embed question using Pinecone Inference (1024-dim llama-text-embed-v2) */
     const embeddingResponse = await pinecone.inference.embed(
       'llama-text-embed-v2',
       [question],
@@ -72,31 +75,105 @@ export async function chat(req, res) {
 
     const queryVector = embeddingResponse.data[0].values;
 
-    /* Pinecone search */
+    /* 2. Initial broad search (Top-10 candidates) */
     const searchResults = await pineconeIndex
       .namespace(namespace)
       .query({
         vector: queryVector,
-        topK: TOP_K,
+        topK: INITIAL_TOP_K,
         includeMetadata: true,
       });
 
     if (!searchResults.matches?.length) {
       return res.json({
         success: true,
-        answer: "I could not find relevant information in this document for your query. Could you please rephrase or ask about another topic?",
+        answer: "I could not find relevant information in the uploaded document.",
         sources: []
       });
     }
 
-    /* Context + history */
-    const context = buildContext(searchResults.matches);
+    // Prepare candidate chunks for re-ranking
+    const candidateChunks = searchResults.matches
+      .map((m, idx) => ({
+        id: m.id || `${idx}`,
+        text: m.metadata?.text || "",
+        page: m.metadata?.page || 1,
+        source: m.metadata?.source || "",
+        rawScore: m.score || 0,
+      }))
+      .filter(c => c.text.trim().length > 0);
+
+    let topRankedMatches = [];
+
+    /* 3. Re-ranking via Pinecone Inference (bge-reranker-v2-m3) */
+    try {
+      const rerankDocuments = candidateChunks.map((c, i) => ({
+        id: `${i}`,
+        text: c.text
+      }));
+
+      const rerankResponse = await pinecone.inference.rerank(
+        'bge-reranker-v2-m3',
+        question,
+        rerankDocuments,
+        { topN: FINAL_TOP_K, returnDocuments: false }
+      );
+
+      const rerankedData = rerankResponse.data || [];
+      console.log("Rerank result count:", rerankedData.length);
+
+      // 4. Similarity / Relevance Score Thresholding
+      const qualified = rerankedData.filter(d => d.score >= RERANK_SCORE_THRESHOLD);
+
+      if (qualified.length === 0) {
+        console.log("All chunks scored below rerank threshold:", RERANK_SCORE_THRESHOLD);
+        return res.json({
+          success: true,
+          answer: "I could not find relevant information in the uploaded document.",
+          sources: []
+        });
+      }
+
+      topRankedMatches = qualified.map(d => ({
+        ...candidateChunks[d.index],
+        rerankScore: d.score,
+        metadata: {
+          text: candidateChunks[d.index].text,
+          page: candidateChunks[d.index].page,
+          source: candidateChunks[d.index].source,
+        }
+      }));
+    } catch (rerankError) {
+      console.warn("Pinecone inference rerank fallback:", rerankError.message);
+      
+      // Fallback: check raw vector similarity score
+      const qualified = candidateChunks.filter(c => c.rawScore >= VECTOR_SCORE_THRESHOLD);
+      if (qualified.length === 0) {
+        return res.json({
+          success: true,
+          answer: "I could not find relevant information in the uploaded document.",
+          sources: []
+        });
+      }
+
+      topRankedMatches = qualified.slice(0, FINAL_TOP_K).map(c => ({
+        ...c,
+        metadata: {
+          text: c.text,
+          page: c.page,
+          source: c.source,
+        }
+      }));
+    }
+
+    /* 5. Context + history construction */
+    const context = buildContext(topRankedMatches);
     const chatHistory = buildChatHistory(history);
 
-    // Extract deduplicated citations
+    // Extract deduplicated citations from top re-ranked chunks
     const seenPages = new Set();
     const sources = [];
-    searchResults.matches.forEach((m) => {
+    topRankedMatches.forEach((m) => {
       if (m.metadata?.text) {
         const pageNum = m.metadata?.page || 1;
         if (!seenPages.has(pageNum)) {
@@ -109,11 +186,11 @@ export async function chat(req, res) {
       }
     });
 
-    /* Create Gemini model */
+    /* 6. Strict Grounded Gemini Model Setup */
     const model = genAI.getGenerativeModel({
       model: "gemini-2.5-flash",
       generationConfig: {
-        temperature: 0.6,
+        temperature: 0.1, // Low temperature to minimize hallucination
         maxOutputTokens: 1600,
       }
     });
@@ -125,19 +202,16 @@ export async function chat(req, res) {
           role: "user",
           parts: [{
             text: `
-You are an expert AI Document Intelligence Assistant.
+You are an expert Document Intelligence Assistant.
 
-Role & Objectives:
-1. Provide comprehensive, accurate, and educational answers grounded in the provided document context.
-2. Structure your response cleanly using rich Markdown:
-   - Use bold headers and bullet points for readability.
-   - Highlight key terminology and definitions in **bold**.
-   - If applicable, explain core concepts, examples, or code snippets provided in the document.
-3. If the user asks a broad conceptual question (such as "What is DSA?", "Explain algorithm complexity", etc.):
-   - Explain the concept clearly and thoroughly.
-   - Relate it directly to how it is covered in this document.
-4. If the exact answer is not in the context, clearly mention what the document contains and provide a helpful, reliable explanation.
-5. Be professional, friendly, and structured.
+INSTRUCTIONS:
+1. If the user asks a broad concept, term, or acronym question (e.g. "What is DSA?", "DSA??", "Explain Recursion"):
+   - Briefly define the core concept clearly in 1-2 sentences.
+   - Then explain thoroughly how this concept is discussed and applied in the provided "Document Context".
+2. For specific questions about the document, answer strictly using the provided Document Context.
+3. If the topic is completely absent from the Document Context, reply:
+   "I could not find relevant information in the uploaded document."
+4. Structure your response cleanly using rich Markdown (bold headers, key terms in **bold**, bullet points).
 
 Document Context:
 ${context}
