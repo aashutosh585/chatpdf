@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 
 export const useAuth = () => {
   const [user, setUser] = useState(null);
@@ -15,11 +15,7 @@ export const useAuth = () => {
       }
 
       try {
-        const response = await axios.get(`${import.meta.env.VITE_API_URL}/auth/me`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        const response = await apiClient.get('/auth/me');
 
         if (response.data.success && response.data.user) {
           setUser(response.data.user);
@@ -28,7 +24,7 @@ export const useAuth = () => {
           setUser(null);
         }
       } catch (error) {
-        console.error('Error fetching user:', error);
+        console.error('Error fetching user profile:', error);
         localStorage.removeItem('token');
         setUser(null);
       } finally {
@@ -43,11 +39,7 @@ export const useAuth = () => {
     try {
       const token = localStorage.getItem('token');
       if (token) {
-        await axios.post(`${import.meta.env.VITE_API_URL}/auth/logout`, {}, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        await apiClient.post('/auth/logout');
       }
     } catch (error) {
       console.error('Logout error:', error);

@@ -43,11 +43,14 @@ router.post("/register", async (req, res) => {
         await user.save();
         console.log('User created successfully:', user._id);
 
+        if (!process.env.SECRET_KEY) {
+            throw new Error("SECRET_KEY is not defined in environment variables");
+        }
+
         // Generate JWT token
-        console.log('SECRET_KEY available:', !!process.env.SECRET_KEY);
         const token = jwt.sign(
             { id: user._id, email: user.email },
-            process.env.SECRET_KEY || 'fallback_secret_key',
+            process.env.SECRET_KEY,
             { expiresIn: "7d" }
         );
         console.log('JWT token generated successfully');
@@ -64,9 +67,17 @@ router.post("/register", async (req, res) => {
         });
     } catch (error) {
         console.error("Registration error:", error);
+
+        if (error.code === 11000) {
+            return res.status(400).json({
+                success: false,
+                message: "An account with this email address already exists. Please sign in."
+            });
+        }
+
         res.status(500).json({
             success: false,
-            message: error.message
+            message: error.message || "Registration failed. Please try again."
         });
     }
 });
@@ -97,10 +108,14 @@ router.post("/login", async (req, res) => {
             });
         }
 
+        if (!process.env.SECRET_KEY) {
+            throw new Error("SECRET_KEY is not defined in environment variables");
+        }
+
         // Generate JWT token
         const token = jwt.sign(
             { id: user._id, email: user.email },
-            process.env.SECRET_KEY || 'fallback_secret_key',
+            process.env.SECRET_KEY,
             { expiresIn: "7d" }
         );
         console.log('Login successful for user:', user.email);

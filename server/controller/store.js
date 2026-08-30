@@ -4,22 +4,22 @@ dotenv.config();
 import { PDFLoader } from '@langchain/community/document_loaders/fs/pdf';
 import pdf from 'pdf-parse';
 import { RecursiveCharacterTextSplitter } from '@langchain/textsplitters';
-import { GoogleGenerativeAIEmbeddings } from '@langchain/google-genai';
 import { Pinecone } from '@pinecone-database/pinecone';
-import { PineconeStore } from '@langchain/pinecone';
 import fs from 'fs';
 import path from 'path';
 import os from 'os';
 import Pdf from '../models/pdf.js';
 
 export async function store(req, res) {
+    let tempFilePathToDelete = null;
+
     try {
         console.log("Store controller called");
         if (!req.file) {
             console.log("No file in request");
-            return res.status(400).json({ message: "No file uploaded" });
+            return res.status(400).json({ success: false, message: "No file uploaded" });
         }
-        console.log("File received:", req.file);
+        console.log("File received:", req.file.originalname);
         console.log("User:", req.user ? req.user._id : "No user");
 
         const fileName = req.file.originalname;
@@ -29,32 +29,24 @@ export async function store(req, res) {
         const existingPdf = await Pdf.findOne({ userId, fileName });
         if (existingPdf) {
             console.log("PDF already exists for user, skipping processing.");
-            return res.status(200).json({ 
-                message: "Agent is ready to chat (cached)", 
+            return res.status(200).json({
+                success: true,
+                message: "Agent is ready to chat (cached)",
                 pdfId: existingPdf.pdfId,
-                namespace: existingPdf.namespace 
+                fileName: existingPdf.fileName,
+                namespace: existingPdf.namespace
             });
         }
 
-        // If using Cloudinary, req.file.path is the URL. 
-        // If using local disk storage, req.file.path is the local path.
-        // We need to handle both or assume one. The config/cloud.js suggests Cloudinary.
-        // PDFLoader needs a local file. So we download it if it's a URL.
-
         let filePath = req.file.path;
-        let isTemp = false;
 
         if (filePath.startsWith('http')) {
-            // Ensure HTTPS
             if (filePath.startsWith('http:')) {
                 filePath = filePath.replace('http:', 'https:');
             }
 
             console.log("Downloading file from URL:", filePath);
-            // Download to temp file
             const response = await fetch(filePath);
-            console.log(`Fetch Status: ${response.status} ${response.statusText}`);
-
             if (!response.ok) {
                 throw new Error(`Failed to fetch PDF from URL: ${response.status} ${response.statusText}`);
             }
@@ -63,142 +55,132 @@ export async function store(req, res) {
             const tempFilePath = path.join(tempDir, `temp_${Date.now()}.pdf`);
             fs.writeFileSync(tempFilePath, Buffer.from(buffer));
             filePath = tempFilePath;
-            isTemp = true;
+            tempFilePathToDelete = tempFilePath;
             console.log("File downloaded to:", filePath);
+        } else {
+            tempFilePathToDelete = filePath;
         }
 
         console.log("Loading PDF from:", filePath);
 
-        // First try pdf-parse for clean text extraction
-        let extractedText = '';
+        // Load PDF with page numbers preserved
+        let rawDocs = [];
         try {
-            const pdfBuffer = fs.readFileSync(filePath);
-            const pdfData = await pdf(pdfBuffer);
-            extractedText = pdfData.text;
-            console.log("PDF text extracted with pdf-parse, length:", extractedText.length);
-        } catch (error) {
-            console.log("pdf-parse failed, falling back to PDFLoader:", error.message);
-        }
-
-        let rawDocs;
-        if (extractedText) {
-            // Use the extracted text directly
-            rawDocs = [{
-                pageContent: extractedText,
-                metadata: { source: fileName, page: 1 }
-            }];
-        } else {
-            // Fallback to PDFLoader
             const pdfLoader = new PDFLoader(filePath, {
-                splitPages: false,
+                splitPages: true,
             });
             rawDocs = await pdfLoader.load();
+            console.log(`PDFLoader loaded ${rawDocs.length} pages`);
+        } catch (loaderErr) {
+            console.log("PDFLoader failed, falling back to pdf-parse:", loaderErr.message);
+            try {
+                const pdfBuffer = fs.readFileSync(filePath);
+                const pdfData = await pdf(pdfBuffer);
+                if (pdfData.text && pdfData.text.trim()) {
+                    rawDocs = [{
+                        pageContent: pdfData.text,
+                        metadata: { source: fileName, page: 1, loc: { pageNumber: 1 } }
+                    }];
+                }
+            } catch (parseErr) {
+                console.error("pdf-parse fallback also failed:", parseErr.message);
+            }
         }
 
-        console.log("PDF processing complete, documents:", rawDocs.length);
+        console.log("PDF processing complete, pages/documents:", rawDocs.length);
 
-        // Filter out any documents that might contain image data
+        // Clean up temp file immediately after reading
+        if (tempFilePathToDelete && fs.existsSync(tempFilePathToDelete)) {
+            try {
+                fs.unlinkSync(tempFilePathToDelete);
+                tempFilePathToDelete = null;
+            } catch (err) {
+                console.warn("Could not delete temp file:", err.message);
+            }
+        }
+
+        // Filter out documents with invalid text
         const textOnlyDocs = rawDocs.filter(doc => {
-            // Check if the document contains text (not image data)
-            const hasText = typeof doc.pageContent === 'string' && doc.pageContent.trim().length > 10; // Increased minimum length
-            const noImageData = !doc.pageContent.includes('data:image/'); // Only check for actual data URIs, not file extensions
-
-            console.log(`Document check: hasText=${hasText}, noImageData=${noImageData}, length=${doc.pageContent.length}`);
+            const hasText = typeof doc.pageContent === 'string' && doc.pageContent.trim().length > 10;
+            const noImageData = !doc.pageContent.includes('data:image/');
             return hasText && noImageData;
         });
 
         console.log(`Filtered to ${textOnlyDocs.length} text documents out of ${rawDocs.length} total`);
 
-        // Log sample content for debugging
-        if (textOnlyDocs.length > 0) {
-            console.log("Sample document content:", textOnlyDocs[0].pageContent.substring(0, 200) + "...");
+        if (textOnlyDocs.length === 0) {
+            throw new Error("No valid text content found in PDF after processing. The PDF may contain only images or be corrupted.");
         }
 
-        // Clean up temp file
-        if (isTemp) {
-            fs.unlinkSync(filePath);
-        }
-
-        // chunking of data
+        // Chunking of data
         const textSplitter = new RecursiveCharacterTextSplitter({
             chunkSize: 1000,
             chunkOverlap: 200,
         });
         const chunkedDocs = await textSplitter.splitDocuments(textOnlyDocs);
-        console.log("PDF Chunked");
 
         // Validate chunks before embedding
         const validChunks = chunkedDocs.filter(doc => {
-            const hasContent = doc.pageContent && doc.pageContent.trim().length > 0;
-            if (!hasContent) {
-                console.log("Filtered out empty chunk:", doc);
-            }
-            return hasContent;
+            return doc.pageContent && doc.pageContent.trim().length > 0;
         });
 
         console.log(`Valid chunks: ${validChunks.length} out of ${chunkedDocs.length}`);
 
         if (validChunks.length === 0) {
-            throw new Error("No valid text content found in PDF after processing. The PDF may contain only images or be corrupted.");
+            throw new Error("No valid text chunks generated from PDF.");
         }
 
-        // Vector embedding 
-        const embeddings = new GoogleGenerativeAIEmbeddings({
-            apiKey: process.env.GEMINI_API_KEY,
-            model: 'gemini-embedding-001',
-            output_dimensionality: 768,
+        // Configure Pinecone Client
+        const pinecone = new Pinecone({
+            apiKey: process.env.PINECONE_API_KEY,
         });
-        console.log("Embeddings created");
-
-        // DB Configure Pinecone
-        const pinecone = new Pinecone();
         const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX_NAME);
-        console.log("Pinecone Configured");
 
-        // Namespace: user_<userId>_pdf_<filename>
-        // We use req.file.filename (Cloudinary public_id) or req.file.originalname
-        const pdfId = req.file.filename || req.file.originalname;
+        const pdfId = req.file.filename || `${Date.now()}_${fileName.replace(/[^a-zA-Z0-9]/g, '_')}`;
         const namespace = `user_${req.user._id}_pdf_${pdfId.replace(/[^a-zA-Z0-9]/g, '_')}`;
 
         console.log("Storing in namespace:", namespace);
+        console.log(`Batch embedding ${validChunks.length} chunks via Pinecone Inference (llama-text-embed-v2, 1024-dim)...`);
 
-        // Log what we're about to store
-        console.log(`Storing ${validChunks.length} chunks in Pinecone`);
-        validChunks.forEach((doc, i) => {
-            console.log(`Chunk ${i}: length=${doc.pageContent.length}, content preview: "${doc.pageContent.substring(0, 100)}..."`);
-        });
+        const chunkTexts = validChunks.map(doc => doc.pageContent);
+        const vectors = [];
 
-        // Test embedding a single chunk first to verify dimensions
-        console.log("Testing embedding with first chunk...");
-        const testEmbedding = await embeddings.embedQuery(validChunks[0].pageContent);
-        console.log(`Original embedding dimension: ${testEmbedding.length}`);
+        // Pinecone Inference allows up to 50-96 inputs per request
+        const EMBED_BATCH_SIZE = 50;
+        for (let i = 0; i < chunkTexts.length; i += EMBED_BATCH_SIZE) {
+            const textBatch = chunkTexts.slice(i, i + EMBED_BATCH_SIZE);
+            const embeddingResponse = await pinecone.inference.embed(
+                'llama-text-embed-v2',
+                textBatch,
+                { inputType: 'passage', truncate: 'END' }
+            );
 
-        // Create vectors manually with truncated dimensions
-        const vectors = validChunks.map((doc, i) => {
-            return {
-                id: `${namespace}_${i}`,
-                values: Array(768).fill(0.1), // Placeholder - we'll generate real embeddings
-                metadata: { 
-                    text: doc.pageContent,
-                    source: doc.metadata.source || 'pdf',
-                    page: doc.metadata.page || i
-                }
-            };
-        });
-
-        // Generate embeddings for all documents and truncate them to 768 dimensions
-        console.log("Generating embeddings for all documents and truncating to 768 dimensions...");
-        for (let i = 0; i < validChunks.length; i++) {
-            const embedding = await embeddings.embedQuery(validChunks[i].pageContent);
-            vectors[i].values = embedding.slice(0, 768); // Truncate to 768 dimensions
+            embeddingResponse.data.forEach((emb, batchIndex) => {
+                const globalIndex = i + batchIndex;
+                const doc = validChunks[globalIndex];
+                const pageNum = doc.metadata?.loc?.pageNumber || doc.metadata?.page || (globalIndex + 1);
+                vectors.push({
+                    id: `${namespace}_${globalIndex}`,
+                    values: emb.values,
+                    metadata: {
+                        text: doc.pageContent,
+                        source: doc.metadata?.source || fileName,
+                        page: pageNum,
+                    }
+                });
+            });
         }
 
-        console.log(`Uploading ${vectors.length} vectors to Pinecone...`);
-        await pineconeIndex.upsert(vectors, { namespace });
+        console.log(`Uploading ${vectors.length} vectors to Pinecone in batches...`);
 
-        console.log("Successfully stored in Pinecone");
+        // Upsert to Pinecone
+        const UPSERT_BATCH_SIZE = 100;
+        for (let i = 0; i < vectors.length; i += UPSERT_BATCH_SIZE) {
+            const batch = vectors.slice(i, i + UPSERT_BATCH_SIZE);
+            await pineconeIndex.namespace(namespace).upsert(batch);
+        }
 
-        console.log("data stored successfully");
+        console.log("Successfully stored vectors in Pinecone");
 
         // Save PDF metadata to MongoDB
         await Pdf.create({
@@ -208,24 +190,27 @@ export async function store(req, res) {
             namespace: namespace
         });
 
-        // Send success response
-        res.status(200).json({ 
-            message: "PDF uploaded and processed successfully", 
+        res.status(200).json({
+            success: true,
+            message: "PDF uploaded and processed successfully",
             pdfId: pdfId,
-            namespace: namespace 
+            fileName: fileName,
+            namespace: namespace
         });
     } catch (error) {
-        console.log("PDF metadata saved to DB");
         console.error("Error in store controller:", error);
-        if (error.message && error.message.includes("Upserting dense vectors is not supported for sparse indexes")) {
-            return res.status(400).json({
-                message: "Pinecone Index Mismatch: Your index is configured for Sparse vectors. Please create a NEW index with Dimension 768 (for Gemini) and Metric: Cosine.",
-                error: error.message
-            });
+        res.status(500).json({
+            success: false,
+            message: `Error processing PDF: ${error.message}`,
+            error: error.message
+        });
+    } finally {
+        if (tempFilePathToDelete && fs.existsSync(tempFilePathToDelete)) {
+            try {
+                fs.unlinkSync(tempFilePathToDelete);
+            } catch (err) {
+                // ignore
+            }
         }
-        res.status(500).json({ message: `Error processing PDF: ${error.message}`, error: error });
     }
-    
 }
-
-

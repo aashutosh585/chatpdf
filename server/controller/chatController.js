@@ -2,37 +2,33 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 import { Pinecone } from "@pinecone-database/pinecone";
-import { GoogleGenerativeAIEmbeddings } from "@langchain/google-genai";
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
-/*  CLIENTS (singleton)  */
-
+/*  CLIENTS  */
 const genAI = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
-const pinecone = new Pinecone();
+const pinecone = new Pinecone({
+  apiKey: process.env.PINECONE_API_KEY,
+});
 const pineconeIndex = pinecone.Index(process.env.PINECONE_INDEX_NAME);
 
-const embeddings = new GoogleGenerativeAIEmbeddings({
-  apiKey: process.env.GEMINI_API_KEY,
-  model: "gemini-embedding-001",
-  output_dimensionality: 768,
-});
-
 /*  CONFIG  */
-
-const MAX_CONTEXT_CHARS = 3000;
-const MAX_HISTORY_MESSAGES = 2;
-const TOP_K = 3;
+const MAX_CONTEXT_CHARS = 6000;
+const MAX_HISTORY_MESSAGES = 8;
+const TOP_K = 4;
 
 /*  HELPERS  */
-
 function buildNamespace(userId, pdfId) {
   return `user_${userId}_pdf_${pdfId.replace(/[^a-zA-Z0-9]/g, "_")}`;
 }
 
 function buildContext(matches) {
   let context = matches
-    .map(m => m.metadata?.text || "")
+    .map((m, idx) => {
+      const pageInfo = m.metadata?.page ? `[Page ${m.metadata.page}]` : `[Excerpt ${idx + 1}]`;
+      const text = m.metadata?.text || "";
+      return `${pageInfo}:\n${text}`;
+    })
     .join("\n\n");
 
   return context.length > MAX_CONTEXT_CHARS
@@ -44,33 +40,39 @@ function buildChatHistory(history) {
   return history
     .slice(-MAX_HISTORY_MESSAGES)
     .map(m => ({
-      role: m.role === "user" ? "user" : "model",
-      parts: [{ text: m.text }],
+      role: (m.role === "user" || m.type === "user") ? "user" : "model",
+      parts: [{ text: m.text || m.content || "" }],
     }));
 }
 
 /*  CONTROLLER  */
-
 export async function chat(req, res) {
   try {
-    const { question, pdfId, history = [] } = req.body;
+    const question = req.body.question;
+    const pdfId = req.body.pdfId || req.body.pdf_id;
+    const history = req.body.history || [];
     const userId = req.user?._id;
 
     if (!question || !pdfId || !userId) {
       return res.status(400).json({
-        message: "question, pdfId and userId are required",
+        success: false,
+        message: "question and pdfId are required",
       });
     }
 
     const namespace = buildNamespace(userId, pdfId);
     console.log("Chatting in namespace:", namespace);
 
-    /* Embed question */
-    const fullQueryVector = await embeddings.embedQuery(question);
-    const queryVector = fullQueryVector.slice(0, 768); // Truncate to 768 dimensions to match stored vectors
-    console.log(`Query embedding truncated from ${fullQueryVector.length} to ${queryVector.length} dimensions`);
+    /* Embed question using Pinecone Inference (1024-dim llama-text-embed-v2) */
+    const embeddingResponse = await pinecone.inference.embed(
+      'llama-text-embed-v2',
+      [question],
+      { inputType: 'query', truncate: 'END' }
+    );
 
-    /*  Pinecone search */
+    const queryVector = embeddingResponse.data[0].values;
+
+    /* Pinecone search */
     const searchResults = await pineconeIndex
       .namespace(namespace)
       .query({
@@ -81,36 +83,41 @@ export async function chat(req, res) {
 
     if (!searchResults.matches?.length) {
       return res.json({
-        answer: "I could not find relevant information in this document.",
+        success: true,
+        answer: "I could not find relevant information in this document for your query. Could you please rephrase or ask about another topic?",
+        sources: []
       });
     }
 
-    /*  Context + history */
+    /* Context + history */
     const context = buildContext(searchResults.matches);
     const chatHistory = buildChatHistory(history);
 
-    console.log("Retrieved context length:", context.length);
-    console.log("Context preview:", context.substring(0, 300) + "...");
-
-    // Check for image data in context
-    if (context.includes('data:image') || context.includes('.png') || context.includes('.jpg')) {
-        console.error("WARNING: Context contains image data!");
-        return res.json({
-            answer: "The retrieved context contains image data that cannot be processed. Please try a different question or re-upload the PDF.",
-        });
-    }
-
-    /* Create Gemini chat (official) */
-    console.log("Creating Gemini model...");
-    const model = genAI.getGenerativeModel({
-      model: "gemini-1.5-flash",
-      generationConfig: {
-        temperature: 0.7,
-        maxOutputTokens: 1000,
+    // Extract deduplicated citations
+    const seenPages = new Set();
+    const sources = [];
+    searchResults.matches.forEach((m) => {
+      if (m.metadata?.text) {
+        const pageNum = m.metadata?.page || 1;
+        if (!seenPages.has(pageNum)) {
+          seenPages.add(pageNum);
+          sources.push({
+            page: pageNum,
+            snippet: (m.metadata.text || "").substring(0, 160) + "..."
+          });
+        }
       }
     });
 
-    console.log("Starting chat session...");
+    /* Create Gemini model */
+    const model = genAI.getGenerativeModel({
+      model: "gemini-2.5-flash",
+      generationConfig: {
+        temperature: 0.6,
+        maxOutputTokens: 1600,
+      }
+    });
+
     const chatSession = model.startChat({
       history: [
         ...chatHistory,
@@ -118,14 +125,21 @@ export async function chat(req, res) {
           role: "user",
           parts: [{
             text: `
-You are an AI assistant answering questions from a PDF.
+You are an expert AI Document Intelligence Assistant.
 
-Rules:
-- Prefer the provided context
-- If the answer is not in the context, answer using general knowledge
-- Keep the answer short and clear
+Role & Objectives:
+1. Provide comprehensive, accurate, and educational answers grounded in the provided document context.
+2. Structure your response cleanly using rich Markdown:
+   - Use bold headers and bullet points for readability.
+   - Highlight key terminology and definitions in **bold**.
+   - If applicable, explain core concepts, examples, or code snippets provided in the document.
+3. If the user asks a broad conceptual question (such as "What is DSA?", "Explain algorithm complexity", etc.):
+   - Explain the concept clearly and thoroughly.
+   - Relate it directly to how it is covered in this document.
+4. If the exact answer is not in the context, clearly mention what the document contains and provide a helpful, reliable explanation.
+5. Be professional, friendly, and structured.
 
-Context:
+Document Context:
 ${context}
             `.trim(),
           }],
@@ -133,34 +147,28 @@ ${context}
       ],
     });
 
-    console.log("Sending message to Gemini...");
-    /*  Send question */
     const result = await chatSession.sendMessage(question);
     const response = await result.response;
-    console.log("Gemini response received:", response.text().substring(0, 100) + "...");
+    const responseText = response.text() || "No response generated.";
 
     res.json({
-      answer: response.text() || "No response generated.",
+      success: true,
+      answer: responseText,
+      sources: sources
     });
 
   } catch (error) {
     console.error("Chat error:", error);
 
     if (error?.status === 429 || error?.code === 429) {
-      return res.json({
-        answer: "AI quota exceeded. Please try again later.",
-      });
-    }
-
-    // Handle Gemini API specific errors
-    if (error.message && error.message.includes("does not support image input")) {
-      console.error("Gemini image input error - this might indicate PDF processing included images");
-      return res.json({
-        answer: "There was an issue processing the PDF content. Please try uploading a different PDF or contact support.",
+      return res.status(429).json({
+        success: false,
+        answer: "AI quota exceeded. Please try again in a moment.",
       });
     }
 
     res.status(500).json({
+      success: false,
       message: "Internal server error",
       error: error.message,
     });

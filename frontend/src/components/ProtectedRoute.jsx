@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Navigate } from 'react-router-dom';
-import axios from 'axios';
+import apiClient from '../api/apiClient';
 
 const ProtectedRoute = ({ children }) => {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -17,11 +17,7 @@ const ProtectedRoute = ({ children }) => {
       }
 
       try {
-        const response = await axios.get('http://localhost:8000/auth/me', {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        });
+        const response = await apiClient.get('/auth/me');
 
         if (response.data.success) {
           setIsAuthenticated(true);
@@ -43,10 +39,10 @@ const ProtectedRoute = ({ children }) => {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-gray-50">
         <div className="text-center">
           <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-600 mx-auto"></div>
-          <p className="mt-4 text-gray-600">Checking authentication...</p>
+          <p className="mt-4 text-gray-600 font-medium">Checking authentication...</p>
         </div>
       </div>
     );

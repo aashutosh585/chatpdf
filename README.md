@@ -8,7 +8,7 @@
 
 - 🔐 **JWT Authentication & Security** - User registration, password hashing with bcrypt, session validation, and protected routes.
 - 📁 **Smart PDF Processing** - Cloudinary cloud storage, dual-layer PDF parsing (`pdf-parse` & LangChain `PDFLoader`), and recursive character chunking (1000/200 overlap).
-- 🧠 **Vector Embeddings & Semantic Search** - 768-dimensional vector generation via `GoogleGenerativeAIEmbeddings` and Top-K (K=3) semantic retrieval via Pinecone.
+- 🧠 **Vector Embeddings & Semantic Search** - 1024-dimensional vector generation via Pinecone Inference (`llama-text-embed-v2`) and Top-K semantic retrieval.
 - 🛡️ **Multi-Tenant Namespace Isolation** - PDF vectors are strictly indexed under dynamic namespaces (`user_{userId}_pdf_{pdfId}`) to prevent cross-user/document data leakage.
 - 💬 **Conversational Context Memory** - Multi-turn conversation history management coupled with retrieved vector chunks for precise context-grounded answers via Google Gemini 1.5 Flash.
 - ⚡ **Responsive UI** - Modern interface built with React, Vite, and Tailwind CSS.
@@ -113,9 +113,9 @@ SECRET_KEY=your_jwt_secret_key
 # Google Gemini
 GEMINI_API_KEY=your_google_gemini_api_key
 
-# Pinecone (Dimension: 768, Metric: Cosine)
+# Pinecone (Dimension: 1024, Metric: Cosine, Model: llama-text-embed-v2)
 PINECONE_API_KEY=your_pinecone_api_key
-PINECONE_INDEX_NAME=your_pinecone_index_name
+PINECONE_INDEX_NAME=ragpdf
 
 # Cloudinary
 CLOUDINARY_CLOUD_NAME=your_cloud_name

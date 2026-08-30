@@ -17,12 +17,12 @@ export const isAuth = async(req, res, next) =>{
         jwt.verify(token, process.env.SECRET_KEY, async (err, decoded)=>{
             if(err){
                 if(err.name === "TokenExpiredError"){
-                    return res.status(400).json({
+                    return res.status(401).json({
                         success:false,
-                        message:"Access Token has expired, use refreshtoken to generate again"
+                        message:"Access Token has expired, please log in again"
                     })
                 }
-                return res.status(400).json({
+                return res.status(401).json({
                     success:false,
                     message:"Access token is missing or invalid"
                 })
