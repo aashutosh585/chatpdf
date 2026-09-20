@@ -228,20 +228,20 @@ const ChatInterface = ({ pdfId, pdfName }) => {
                     <ReactMarkdown
                       remarkPlugins={[remarkGfm]}
                       components={{
-                        p: ({ node, ...props }) => <p className="mb-2 last:mb-0" {...props} />,
-                        ul: ({ node, ...props }) => <ul className="list-disc pl-5 mb-2 space-y-1" {...props} />,
-                        ol: ({ node, ...props }) => <ol className="list-decimal pl-5 mb-2 space-y-1" {...props} />,
-                        li: ({ node, ...props }) => <li className="text-gray-700" {...props} />,
-                        h3: ({ node, ...props }) => <h3 className="text-base font-bold text-gray-900 mt-3 mb-1" {...props} />,
-                        h4: ({ node, ...props }) => <h4 className="text-sm font-bold text-gray-800 mt-2 mb-1" {...props} />,
-                        code: ({ node, inline, ...props }) =>
+                        p: ({ ...props }) => <p className="mb-2 last:mb-0" {...props} />,
+                        ul: ({ ...props }) => <ul className="list-disc pl-5 mb-2 space-y-1" {...props} />,
+                        ol: ({ ...props }) => <ol className="list-decimal pl-5 mb-2 space-y-1" {...props} />,
+                        li: ({ ...props }) => <li className="text-gray-700" {...props} />,
+                        h3: ({ ...props }) => <h3 className="text-base font-bold text-gray-900 mt-3 mb-1" {...props} />,
+                        h4: ({ ...props }) => <h4 className="text-sm font-bold text-gray-800 mt-2 mb-1" {...props} />,
+                        code: ({ inline, ...props }) =>
                           inline ? (
                             <code className="bg-gray-100 text-indigo-600 px-1.5 py-0.5 rounded font-mono text-xs font-semibold" {...props} />
                           ) : (
                             <code className="block bg-gray-900 text-gray-100 p-3 rounded-xl font-mono text-xs overflow-x-auto my-2" {...props} />
                           ),
-                        strong: ({ node, ...props }) => <strong className="font-bold text-gray-900" {...props} />,
-                        blockquote: ({ node, ...props }) => (
+                        strong: ({ ...props }) => <strong className="font-bold text-gray-900" {...props} />,
+                        blockquote: ({ ...props }) => (
                           <blockquote className="border-l-4 border-indigo-400 pl-3 my-2 text-gray-600 italic bg-indigo-50/40 py-1 rounded-r" {...props} />
                         ),
                       }}
