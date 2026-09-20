@@ -9,10 +9,10 @@
 ## ✨ Features
 
 - 🔐 **JWT Authentication & Security** - User registration, password hashing with bcrypt, session validation, and protected routes.
-- 📁 **Smart PDF Processing** - Cloudinary cloud storage, dual-layer PDF parsing (`pdf-parse` & LangChain `PDFLoader`), and recursive character chunking (1000/200 overlap).
-- 🧠 **Vector Embeddings & Semantic Search** - 1024-dimensional vector generation via Pinecone Inference (`llama-text-embed-v2`) and Top-K semantic retrieval.
+- 📁 **Smart PDF Processing** - Cloudinary cloud storage, dual-layer PDF parsing (`pdf-parse` & LangChain `PDFLoader`), and recursive character chunking (500-chunk size / 120-overlap).
+- 🧠 **Vector Embeddings & Advanced Search** - 1024-dimensional vector generation via Pinecone Inference (`llama-text-embed-v2`), Top-10 initial semantic retrieval, and precise re-ranking via `bge-reranker-v2-m3` (Top-4).
 - 🛡️ **Multi-Tenant Namespace Isolation** - PDF vectors are strictly indexed under dynamic namespaces (`user_{userId}_pdf_{pdfId}`) to prevent cross-user/document data leakage.
-- 💬 **Conversational Context Memory** - Multi-turn conversation history management coupled with retrieved vector chunks for precise context-grounded answers via Google Gemini 1.5 Flash.
+- 💬 **Conversational Context Memory** - Multi-turn conversation history management coupled with strictly grounded context assembly for answers via **Google Gemini 2.5 Flash**.
 - ⚡ **Responsive UI** - Modern interface built with React, Vite, and Tailwind CSS.
 
 ---
@@ -34,10 +34,18 @@
 | **Node.js & Express.js** | Backend runtime & RESTful API framework |
 | **MongoDB & Mongoose** | NoSQL database for users & PDF document metadata |
 | **LangChain** | Document processing & chunking (`RecursiveCharacterTextSplitter`) |
-| **Google Gemini API** | Embeddings (`gemini-embedding-001`) & Generative Chat (`gemini-1.5-flash`) |
-| **Pinecone** | Managed vector database for high-speed similarity search |
+| **Google Gemini API** | Generative Chat (`gemini-2.5-flash`) |
+| **Pinecone** | Vector database & Native Serverless Inference (`llama-text-embed-v2` & `bge-reranker-v2-m3`) |
 | **Cloudinary & Multer** | Cloud PDF storage & multipart file handling |
 | **JWT & Bcrypt.js** | Token-based auth & cryptographic password hashing |
+
+### DevOps & Deployment
+| Technology | Purpose |
+|:-----------|:--------|
+| **Docker & Docker Compose** | Containerization of frontend and backend services |
+| **GitHub Actions** | Automated CI/CD pipeline for testing and deployment |
+| **AWS EC2** | Cloud hosting infrastructure |
+| **Nginx** | Reverse proxy and web server |
 
 ---
 
@@ -50,10 +58,10 @@
 [Dual Parser: pdf-parse / PDFLoader] 
        │
        ▼
-[RecursiveCharacterTextSplitter (chunk: 1000, overlap: 200)] 
+[RecursiveCharacterTextSplitter (chunk: 500, overlap: 120)] 
        │
        ▼
-[Gemini Embeddings (768-dim)] 
+[Pinecone Inference: llama-text-embed-v2 (1024-dim)] 
        │
        ▼
 [Pinecone Upsert (Namespace: user_{userId}_pdf_{pdfId})]
@@ -63,19 +71,22 @@
 [User Asks Question] 
        │
        ▼
-[Embed Question Vector] 
+[Embed Question Vector via Pinecone Inference] 
        │
        ▼
-[Pinecone Top-K Semantic Search in Namespace] 
+[Initial Semantic Search in Namespace (Top-10)] 
+       │
+       ▼
+[Pinecone Inference: bge-reranker-v2-m3 (Reranks to Top-4)]
        │
        ▼
 [Context Assembly + Chat History Window] 
        │
        ▼
-[Google Gemini 1.5 Flash Inference] 
+[Google Gemini 2.5 Flash Inference] 
        │
        ▼
-[Streamed / Grounded Response to Frontend]
+[Strictly Grounded Response + Sources]
 ```
 
 ---
@@ -99,7 +110,17 @@ cd chatpdf
 
 ---
 
-### 2. Setup Server (`server/`)
+### 2. Running with Docker (Recommended)
+You can run the entire application (Frontend + Backend) locally with a single command using Docker. First, ensure you create the `.env` files inside both `server/` and `frontend/` as described below.
+
+```bash
+docker compose up --build -d
+```
+Your frontend will be instantly available at `http://localhost:3000` and backend at `http://localhost:8000`.
+
+---
+
+### 3. Manual Setup: Server (`server/`)
 ```bash
 cd server
 npm install
@@ -133,7 +154,7 @@ npm run dev
 
 ---
 
-### 3. Setup Frontend (`frontend/`)
+### 4. Manual Setup: Frontend (`frontend/`)
 In a new terminal window:
 ```bash
 cd frontend
@@ -153,40 +174,41 @@ npm run dev
 
 ---
 
+## ☁️ CI/CD Deployment
+
+This project uses a fully automated **GitHub Actions CI/CD Pipeline** to seamlessly deploy updates to **AWS EC2**.
+
+1. Every push to the `main` branch triggers the `.github/workflows/deploy.yml` workflow.
+2. The pipeline validates the code and securely transfers the files to the EC2 server using SCP.
+3. It dynamically links secure environment variables on the server.
+4. **Docker Compose** handles rebuilding and gracefully restarting the application containers.
+5. **Nginx** on the host server acts as a reverse proxy, instantly routing traffic to the updated application.
+
+*(For detailed local infrastructure notes, see `deploy.md` locally).*
+
+---
+
 ## 📂 Project Structure
 
 ```
 chatpdf/
+├── .github/workflows/                # CI/CD pipelines
+│   └── deploy.yml                    # Automated EC2 deployment script
 ├── frontend/                         # React Frontend Application
-│   ├── src/
-│   │   ├── components/               # UI components (Chat, Upload, Navbar, Tables)
-│   │   ├── hooks/                    # Custom React hooks (useAuth)
-│   │   ├── pages/                    # Views (Dashboard, Chat, Login, Landing)
-│   │   ├── App.jsx                   # Route configurations
-│   │   └── main.jsx                  # Application entry point
-│   ├── package.json
-│   └── vite.config.js
+│   ├── src/                          # React source code
+│   ├── Dockerfile                    # Multi-stage Docker build for frontend
+│   └── nginx.conf                    # Nginx config for frontend container
 │
 ├── server/                           # Express.js Backend Application
-│   ├── config/
-│   │   ├── cloud.js                  # Cloudinary configuration
-│   │   ├── db.js                     # MongoDB connection
-│   │   └── multer.js                 # File upload middleware
-│   ├── controller/
-│   │   ├── chatController.js         # RAG query, Pinecone retrieval & Gemini chat
-│   │   └── store.js                  # PDF text extraction, chunking & vector storage
-│   ├── middleware/
-│   │   └── isAuth.js                 # JWT verification middleware
-│   ├── models/
-│   │   ├── pdf.js                    # PDF metadata schema
-│   │   └── user.js                   # User auth schema
-│   ├── routes/
-│   │   ├── authRoute.js              # Auth endpoints (/auth/*)
-│   │   └── userRoute.js              # PDF & chat endpoints (/user/*)
-│   ├── server.js                     # Server entry point
-│   └── package.json
+│   ├── config/                       # DB and Cloud configs
+│   ├── controller/                   # RAG, Pinecone, and Gemini logic
+│   ├── routes/                       # Express routes
+│   └── server.js                     # Server entry point
 │
-├── .gitignore
+├── nginx/                            # Host Nginx configuration
+│   └── chatpdf.conf                  # Reverse proxy config for EC2
+├── docker-compose.yml                # Multi-container orchestration
+├── dockerfile                        # Backend Dockerfile
 └── README.md
 ```
 
