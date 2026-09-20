@@ -72,6 +72,9 @@ jobs:
             test -f /secret/.env_frontend || sudo touch /secret/.env_frontend
             export FRONTEND_ENV_FILE=/secret/.env_frontend
             
+            # Fix permissions so the ubuntu user (and docker compose) can read them
+            sudo chown ubuntu:ubuntu /secret/.env_backend /secret/.env_frontend
+            
             # 3. Build and deploy containers
             cd /opt/chatpdf
             docker compose build --pull
