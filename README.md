@@ -1,5 +1,7 @@
 # 📄 ChatPDF - AI-Powered Document Q&A Platform
 
+🌍 **Live Demo:** [http://18.207.127.87](http://18.207.127.87)
+
 **ChatPDF is a full-stack AI-powered document intelligence platform that allows users to upload PDF documents and interact with them using natural language. Powered by an end-to-end RAG (Retrieval-Augmented Generation) pipeline using Google Gemini 1.5 Flash, LangChain, and Pinecone vector database.**
 
 ---
